@@ -13,13 +13,15 @@ from src.core.scraper import scrape_curs_bnr
 
 app = FastAPI(title="Curs BNR Forecast API", version="1.0.0")
 
-# Set up CORS
+# Set up CORS - Broad for local dev
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://0.0.0.0:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
