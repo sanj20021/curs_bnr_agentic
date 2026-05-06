@@ -117,7 +117,7 @@ export default function App() {
     }
   };
 
-  // AGENTIC LOGIC: SIMULATED LLM WITH TOOL CALLING
+  // AGENTIC LOGIC: REAL LLM (Llama 3.3) WITH TOOL CALLING
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -126,52 +126,68 @@ export default function App() {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setChatInput('');
 
-    // Simulate Agent processing
-    setTimeout(async () => {
-      const inputLower = userMsg.toLowerCase();
-      
-      // TOOL DETECTION
-      if (inputLower.includes('actualizează') || inputLower.includes('scrape') || inputLower.includes('date noi')) {
-        setMessages(prev => [...prev, { 
-          role: 'system', 
-          content: 'TOOL CALL: {"function": "scrape_bnr_data", "params": {}}' 
-        }]);
-        
-        const success = await runPipeline(true);
-        if (success) {
-          setMessages(prev => [...prev, { role: 'bot', content: 'Am actualizat datele cu succes de la BNR și am reantrenat modelul AI. Dashboard-ul a fost reîmprospătat!' }]);
-        } else {
-          setMessages(prev => [...prev, { role: 'bot', content: 'A apărut o problemă la actualizarea datelor. Te rog să încerci din nou manual.' }]);
-        }
-      } 
-      else if (inputLower.includes('prognoză') || inputLower.includes('predicție') || inputLower.includes('viitor')) {
-        setMessages(prev => [...prev, { 
-          role: 'system', 
-          content: 'TOOL CALL: {"function": "get_forecast", "params": {"target": "PLN"}}' 
-        }]);
-        
-        if (predictions.length > 0) {
-          const nextVal = predictions[0].Predictie;
-          setMessages(prev => [...prev, { role: 'bot', content: `Conform modelului meu XGBoost, valoarea prognozată pentru următoarea zi lucrătoare este ${nextVal} RON. Poți vedea detaliile complete în panoul de predicții.` }]);
-        } else {
-          setMessages(prev => [...prev, { role: 'bot', content: 'Momentan nu am o prognoză activă. Ar trebui să actualizăm datele mai întâi.' }]);
+    try {
+      // Send to real AI backend
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMsg,
+          history: messages.slice(-5).map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+
+      if (!res.ok) throw new Error('AI offline');
+      const dataJson = await res.json();
+      const aiContent = dataJson.response;
+
+      // Handle Tool Calls (if AI returned JSON)
+      if (aiContent.includes('{') && aiContent.includes('}')) {
+        try {
+          const startIndex = aiContent.indexOf('{');
+          const endIndex = aiContent.lastIndexOf('}') + 1;
+          const jsonStr = aiContent.substring(startIndex, endIndex);
+          const toolCall = JSON.parse(jsonStr);
+
+          if (toolCall.tool) {
+            setMessages(prev => [...prev, { 
+              role: 'system', 
+              content: `TOOL CALL: ${JSON.stringify(toolCall)}` 
+            }]);
+
+            if (toolCall.tool === 'scrape_bnr') {
+              const success = await runPipeline(true);
+              const response = success ? "Am finalizat actualizarea datelor de la BNR." : "Eroare la scraping.";
+              setMessages(prev => [...prev, { role: 'bot', content: response }]);
+            } 
+            else if (toolCall.tool === 'get_forecast') {
+              if (predictions.length > 0) {
+                setMessages(prev => [...prev, { role: 'bot', content: `Prognoza pentru mâine este ${predictions[0].Predictie} RON. Trendul este vizibil pe grafic.` }]);
+              } else {
+                setMessages(prev => [...prev, { role: 'bot', content: "Nu am date de prognoză în memorie. Te rog să îmi ceri să actualizez datele." }]);
+              }
+            }
+            else if (toolCall.tool === 'get_rates') {
+              if (data.length > 0) {
+                setMessages(prev => [...prev, { role: 'bot', content: `Ultimul curs PLN este ${data[data.length-1].PLN} RON.` }]);
+              }
+            }
+            else if (toolCall.tool === 'get_runs') {
+              setMessages(prev => [...prev, { role: 'bot', content: modelInfo ? `Modelul a fost antrenat ultima dată la ${modelInfo.trained_at}.` : "Modelul nu a fost antrenat încă." }]);
+            }
+            return;
+          }
+        } catch (e) {
+          console.log("Not a valid tool call JSON, treating as message");
         }
       }
-      else if (inputLower.includes('curs') || inputLower.includes('istoric') || inputLower.includes('cât este')) {
-        setMessages(prev => [...prev, { 
-          role: 'system', 
-          content: 'TOOL CALL: {"function": "get_rates", "params": {"currency": "PLN"}}' 
-        }]);
-        
-        if (data.length > 0) {
-          const last = data[data.length - 1];
-          setMessages(prev => [...prev, { role: 'bot', content: `Ultimul curs raportat de BNR pentru PLN este ${last.PLN} RON (la data de ${last.Data}).` }]);
-        }
-      }
-      else {
-        setMessages(prev => [...prev, { role: 'bot', content: 'Nu sunt sigur cum să te ajut cu asta. Poți să mă întrebi despre cursul actual, prognoza pe 7 zile sau să-mi ceri să actualizez datele.' }]);
-      }
-    }, 600);
+
+      // Normal message
+      setMessages(prev => [...prev, { role: 'bot', content: aiContent }]);
+
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'bot', content: 'Eroare de comunicare cu creierul AI. Verifică portul 7772.' }]);
+    }
   };
 
   const latestRate = data.length > 0 ? parseFloat(data[data.length - 1].PLN) : 0;

@@ -10,6 +10,8 @@ import json
 from datetime import datetime, timedelta
 from src.core.pipeline import main as run_core_pipeline
 from src.core.scraper import scrape_curs_bnr
+from groq import Groq
+
 
 app = FastAPI(title="Curs BNR Forecast API", version="1.0.0")
 
@@ -21,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "missing_key")
+client = Groq(api_key=GROQ_API_KEY)
+
 
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 data_dir = os.path.join(base_dir, "date_extrase")
@@ -125,4 +131,46 @@ def get_predictions():
         print(f"Eroare la generarea predicțiilor: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# To run: uvicorn src.api.server:app --reload
+@app.post("/api/chat")
+async def chat_with_ai(request: dict):
+    try:
+        user_message = request.get("message")
+        history = request.get("history", [])
+        
+        system_prompt = """
+        Ești un chatbot inteligent (Asistent Agentic BNR) care ajută utilizatorii cu date despre cursul PLN/RON și prognoze AI.
+        
+        REGULI DE TOOL-CALLING:
+        Dacă utilizatorul cere o acțiune care necesită date externe sau procesare, trebuie să răspunzi EXCLUSIV cu un obiect JSON în formatul:
+        {"tool": "function_name", "parameters": {}}
+        
+        FUNCTII DISPONIBILE:
+        - get_rates: Când utilizatorul cere cursul actual sau istoricul.
+        - get_forecast: Când utilizatorul cere prognoze sau estimări de viitor.
+        - get_runs: Când utilizatorul întreabă despre statusul modelului sau ultima antrenare.
+        - scrape_bnr: Când utilizatorul cere actualizarea datelor sau scraping de la BNR.
+        
+        Dacă nu e nevoie de un tool, răspunde normal în limba română, într-un stil profesional și prietenos.
+        """
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in history:
+            messages.append(msg)
+        messages.append({"role": "user", "content": user_message})
+        
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1024,
+            top_p=1,
+            stream=False,
+        )
+        
+        ai_response = completion.choices[0].message.content
+        return {"response": ai_response}
+    except Exception as e:
+        print(f"Eroare Groq: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# To run: uvicorn src.api.server:app --port 7772
