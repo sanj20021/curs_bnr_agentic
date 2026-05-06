@@ -10,6 +10,7 @@ import {
 
 export default function App() {
   const [data, setData] = useState([]);
+  const [predictions, setPredictions] = useState([]);
   const [modelInfo, setModelInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -40,6 +41,17 @@ export default function App() {
         if (modelRes.ok) {
           const modelJson = await modelRes.json();
           setModelInfo(modelJson);
+          
+          // Fetch real predictions from the trained model
+          try {
+            const predRes = await fetch('http://localhost:8000/api/predict');
+            if (predRes.ok) {
+              const predJson = await predRes.json();
+              setPredictions(predJson.predictions || []);
+            }
+          } catch (e) {
+            console.log("Predictions not available yet");
+          }
         }
       } catch (e) {
         console.log("Model not found yet");
@@ -90,22 +102,15 @@ export default function App() {
   const prevRate = data.length > 1 ? parseFloat(data[data.length - 2].PLN) : 0;
   const isUp = latestRate > prevRate;
   
-  // Fake predictions for demo visualization if model is loaded
+  // Use REAL predictions from the trained XGBoost model
   const chartData = [...data];
-  if (data.length > 0 && modelInfo) {
-    const lastDate = new Date(data[data.length - 1].Data);
-    let currentVal = latestRate;
-    
-    for (let i = 1; i <= 7; i++) {
-      const nextDate = new Date(lastDate);
-      nextDate.setDate(lastDate.getDate() + i);
-      currentVal = currentVal + (Math.random() - 0.5) * 0.01;
-      
+  if (predictions.length > 0) {
+    predictions.forEach(pred => {
       chartData.push({
-        Data: nextDate.toISOString().split('T')[0],
-        Predictie: currentVal.toFixed(4)
+        Data: pred.Data,
+        Predictie: pred.Predictie.toFixed(4)
       });
-    }
+    });
   }
 
   return (

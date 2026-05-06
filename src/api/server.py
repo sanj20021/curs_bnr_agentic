@@ -2,9 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
+import numpy as np
 import os
 import joblib
 import traceback
+import json
+from datetime import datetime, timedelta
 from src.core.pipeline import main as run_core_pipeline
 from src.core.scraper import scrape_curs_bnr
 
@@ -67,6 +70,57 @@ def run_pipeline():
         return {"status": "success", "message": "Pipeline executat cu succes!"}
     except Exception as e:
         print(f"Eroare la rularea pipeline-ului: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/predict")
+def get_predictions():
+    """Generates real 7-day predictions using the trained XGBoost model."""
+    model_path = os.path.join(data_dir, "best_model_pln.pkl")
+    csv_path = os.path.join(data_dir, "istoric_curs_pln.csv")
+    
+    if not os.path.exists(model_path):
+        raise HTTPException(status_code=404, detail="Modelul nu a fost antrenat. Rulați pipeline-ul mai întâi.")
+    if not os.path.exists(csv_path):
+        raise HTTPException(status_code=404, detail="Datele istorice nu au fost găsite.")
+    
+    try:
+        model = joblib.load(model_path)
+        
+        df = pd.read_csv(csv_path)
+        df['Data'] = pd.to_datetime(df['Data'], format='%d.%m.%Y', errors='coerce')
+        df = df.dropna(subset=['Data']).sort_values('Data').reset_index(drop=True)
+        
+        target_col = df.columns[1]
+        values = df[target_col].values.tolist()
+        last_date = df['Data'].iloc[-1]
+        
+        predictions = []
+        pred_date = last_date
+        
+        for i in range(7):
+            pred_date = pred_date + timedelta(days=1)
+            # Skip weekends (BNR doesn't publish on Sat/Sun)
+            while pred_date.weekday() >= 5:
+                pred_date = pred_date + timedelta(days=1)
+            
+            lag_1 = values[-1]
+            lag_2 = values[-2]
+            lag_7 = values[-7] if len(values) >= 7 else values[0]
+            day_of_week = pred_date.weekday()
+            
+            features = np.array([[lag_1, lag_2, lag_7, day_of_week]])
+            pred_value = float(model.predict(features)[0])
+            
+            values.append(pred_value)
+            
+            predictions.append({
+                "Data": pred_date.strftime('%Y-%m-%d'),
+                "Predictie": round(pred_value, 4)
+            })
+        
+        return {"predictions": predictions}
+    except Exception as e:
+        print(f"Eroare la generarea predicțiilor: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # To run: uvicorn src.api.server:app --reload
