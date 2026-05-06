@@ -16,13 +16,52 @@ Aplicație de predicție a cursului valutar PLN (Zlotul Polonez) față de RON, 
 ├── main.py                # Orchestrator - rulează pipeline-ul complet
 ├── scraper.py             # Extragere date BNR via Playwright
 ├── model.py               # Antrenare XGBoost + optimizare Optuna/GridSearch
-├── plan_implementare.md   # Documentația planului de implementare
-├── requirements.txt       # Dependențe Python
-├── date_extrase/
-│   ├── istoric_curs_pln.csv   # Datele istorice extrase
-│   └── best_model_pln.pkl     # Modelul antrenat (generat automat)
-└── README.md              # Acest fișier
+├── plan_implementare.md   ## Arhitectură
+Proiectul a fost refactorizat într-o aplicație Full-Stack modernă:
+- **Backend (FastAPI)**: Servește datele istorice și expune informațiile modelului XGBoost.
+- **Frontend (Vite + React JSX)**: Un dashboard modern, glassmorphism, pentru vizualizarea interactivă a predicțiilor.
+- **Core (Python)**: Scripturile originale de scraping și machine learning optimizate.
+
+## Dependențe Principale
+- `playwright` pentru web scraping (necesită instalare browser).
+- `xgboost` & `optuna` & `scikit-learn` pentru modelare.
+- `fastapi` & `uvicorn` pentru backend.
+- `react` & `recharts` pentru frontend.
+
+## Instalare & Rulare
+
+### 1. Setare Backend (Python)
+Creați și activați un mediu virtual:
+```bash
+python -m venv venv
+venv\Scripts\activate
 ```
+
+Instalați dependențele Python și browserul pentru Playwright:
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+Pentru a extrage datele și a antrena modelul (dacă e prima dată):
+```bash
+python src/core/pipeline.py
+```
+
+Pentru a porni serverul API:
+```bash
+python -m uvicorn src.api.server:app --port 8000 --reload
+```
+
+### 2. Setare Frontend (React)
+Deschideți un terminal nou în folderul `frontend/`:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Aplicația va fi disponibilă la `http://localhost:5173`.
 
 ## 🚀 Ghid de Rulare
 

@@ -12,6 +12,8 @@ export default function App() {
   const [data, setData] = useState([]);
   const [modelInfo, setModelInfo] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [scrapeOnlyRunning, setScrapeOnlyRunning] = useState(false);
   const [error, setError] = useState(null);
 
   const fetchData = async () => {
@@ -54,6 +56,36 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const runPipeline = async () => {
+    if (!confirm("Sunteți sigur? Procesul de scraping și reoptimizare a modelului cu Optuna va dura 1-2 minute.")) return;
+    try {
+      setPipelineRunning(true);
+      const res = await fetch('http://localhost:8000/api/run-pipeline', { method: 'POST' });
+      if (!res.ok) throw new Error('A apărut o eroare la rularea pipeline-ului pe server.');
+      alert("Pipeline rulat cu succes! Au fost extrase date noi și modelul a fost reantrenat. Se încarcă noile date...");
+      fetchData();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setPipelineRunning(false);
+    }
+  };
+
+  const runScrapeOnly = async () => {
+    try {
+      setScrapeOnlyRunning(true);
+      const res = await fetch('http://localhost:8000/api/scrape-only', { method: 'POST' });
+      if (!res.ok) throw new Error('A apărut o eroare la extragerea datelor noi.');
+      const jsonRes = await res.json();
+      alert(jsonRes.message || "Date extrase cu succes!");
+      fetchData();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setScrapeOnlyRunning(false);
+    }
+  };
 
   const latestRate = data.length > 0 ? parseFloat(data[data.length - 1].PLN) : 0;
   const prevRate = data.length > 1 ? parseFloat(data[data.length - 2].PLN) : 0;
@@ -98,8 +130,32 @@ export default function App() {
           <p className="subtitle">Platformă AI pentru prognoza cursului valutar PLN/RON</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
-          <button className="btn btn-primary" onClick={fetchData}>
-            <RefreshCw size={16} /> Refresh Date
+          <button className="btn btn-primary" onClick={fetchData} disabled={pipelineRunning || scrapeOnlyRunning}>
+            <RefreshCw size={16} /> Refresh Grafic
+          </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={runScrapeOnly} 
+            disabled={pipelineRunning || scrapeOnlyRunning}
+            style={{ 
+              backgroundColor: scrapeOnlyRunning ? 'var(--warning)' : '#10b981',
+              borderColor: scrapeOnlyRunning ? 'var(--warning)' : '#10b981'
+            }}
+          >
+            {scrapeOnlyRunning ? <RefreshCw size={16} className="spin" /> : <Database size={16} />}
+            {scrapeOnlyRunning ? "Se descarcă..." : "Scrape Date Noi (Rapid)"}
+          </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={runPipeline} 
+            disabled={pipelineRunning || scrapeOnlyRunning}
+            style={{ 
+              backgroundColor: pipelineRunning ? 'var(--warning)' : 'var(--accent)',
+              borderColor: pipelineRunning ? 'var(--warning)' : 'var(--accent)'
+            }}
+          >
+            {pipelineRunning ? <RefreshCw size={16} className="spin" /> : <Cpu size={16} />}
+            {pipelineRunning ? "Se antrenează..." : "Run Pipeline (Scrape & Train)"}
           </button>
         </div>
       </header>
@@ -195,6 +251,54 @@ export default function App() {
                 <Area type="monotone" dataKey="Predictie" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" fillOpacity={1} fill="url(#colorPred)" />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Historical Data Table */}
+          <div className="glass-panel table-container">
+            <div className="metric-title" style={{ marginBottom: '1rem' }}>
+              <Database size={18} /> Istoric Curs (Ultimele 10 zile)
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Curs PLN</th>
+                  <th>Evoluție</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...data].reverse().slice(0, 10).map((row, idx, arr) => {
+                  const prevDay = arr[idx + 1];
+                  const currentVal = parseFloat(row.PLN);
+                  const prevVal = prevDay ? parseFloat(prevDay.PLN) : currentVal;
+                  const diff = currentVal - prevVal;
+                  const isUp = diff > 0;
+                  const isSame = diff === 0;
+                  
+                  return (
+                    <tr key={row.Data}>
+                      <td>{row.Data}</td>
+                      <td style={{ fontWeight: 500 }}>{currentVal.toFixed(4)} RON</td>
+                      <td>
+                        {isSame ? (
+                          <span style={{ color: 'var(--text-muted)' }}>-</span>
+                        ) : (
+                          <span className={`metric-trend ${isUp ? 'trend-up' : 'trend-down'}`} style={{ padding: '2px 6px', fontSize: '0.75rem' }}>
+                            {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {Math.abs(diff).toFixed(4)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {data.length === 0 && (
+                  <tr>
+                    <td colSpan="3" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Nu există date disponibile.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
         </div>

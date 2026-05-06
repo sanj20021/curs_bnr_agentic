@@ -19,19 +19,12 @@
 - Curs **EUR/RON** si **EUR/PLN** ca features aditionale
 - Indici bursieri relevanti (BET, WIG20)
 
-## Interfata utilizator
-- **Dashboard Streamlit** cu grafice interactive pentru vizualizarea predictiilor
-- Posibilitatea de a selecta valuta si perioada de analiza
-- Tab cu rezultatele antrenarii si evaluarii
-- Integrare **Optuna Dashboard** pentru vizualizarea studiilor de optimizare
+## Implementate (Finalizate cu Succes)
+- **Dashboard Web (Vite + React JSX)** cu grafice interactive, Dark Mode, glassmorphism.
+- Funcționalitate de **"Run Pipeline" (Refresh & Reantrenare)** direct din interfață.
+- **Backend API (FastAPI)** care expune datele și primește trigger-ul de reantrenare.
 
-## Backend API
-- **FastAPI** cu endpoint-uri REST pentru predictii on-demand
-- Endpoint-uri pentru reantrenare model la cerere
-- Endpoint pentru compararea modelelor
-
-## Pipeline si DevOps
-- Automatizare rulare zilnica a scraper-ului (cron job)
-- Reantrenare periodica a modelului cu date noi
-- Monitorizare drift al modelului (detectie degradare performanta)
-- Logging structurat si alertare la erori
+## Idei pentru Viitor (DevOps)
+- Automatizare rulare zilnică a scraper-ului (cron job) - momentan se face manual via UI.
+- Monitorizare drift al modelului (detecție degradare performanță)
+- Logging structurat și alertare la erori
