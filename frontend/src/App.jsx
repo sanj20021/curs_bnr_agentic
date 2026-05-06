@@ -23,7 +23,7 @@ export default function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState([
-    { role: 'bot', content: 'Bună! Sunt asistentul tău financiar AI. Te pot ajuta cu informații despre cursul BNR, prognoze sau pot actualiza datele pentru tine. Ce dorești să afli?' }
+    { role: 'assistant', content: 'Bună! Sunt asistentul tău financiar AI. Te pot ajuta cu informații despre cursul BNR, prognoze sau pot actualiza datele pentru tine. Ce dorești să afli?' }
   ]);
   const chatEndRef = useRef(null);
 
@@ -158,22 +158,22 @@ export default function App() {
             if (toolCall.tool === 'scrape_bnr') {
               const success = await runPipeline(true);
               const response = success ? "Am finalizat actualizarea datelor de la BNR." : "Eroare la scraping.";
-              setMessages(prev => [...prev, { role: 'bot', content: response }]);
+              setMessages(prev => [...prev, { role: 'assistant', content: response }]);
             } 
             else if (toolCall.tool === 'get_forecast') {
               if (predictions.length > 0) {
-                setMessages(prev => [...prev, { role: 'bot', content: `Prognoza pentru mâine este ${predictions[0].Predictie} RON. Trendul este vizibil pe grafic.` }]);
+                setMessages(prev => [...prev, { role: 'assistant', content: `Prognoza pentru mâine este ${predictions[0].Predictie} RON. Trendul este vizibil pe grafic.` }]);
               } else {
-                setMessages(prev => [...prev, { role: 'bot', content: "Nu am date de prognoză în memorie. Te rog să îmi ceri să actualizez datele." }]);
+                setMessages(prev => [...prev, { role: 'assistant', content: "Nu am date de prognoză în memorie. Te rog să îmi ceri să actualizez datele." }]);
               }
             }
             else if (toolCall.tool === 'get_rates') {
               if (data.length > 0) {
-                setMessages(prev => [...prev, { role: 'bot', content: `Ultimul curs PLN este ${data[data.length-1].PLN} RON.` }]);
+                setMessages(prev => [...prev, { role: 'assistant', content: `Ultimul curs PLN este ${data[data.length-1].PLN} RON.` }]);
               }
             }
             else if (toolCall.tool === 'get_runs') {
-              setMessages(prev => [...prev, { role: 'bot', content: modelInfo ? `Modelul a fost antrenat ultima dată la ${modelInfo.trained_at}.` : "Modelul nu a fost antrenat încă." }]);
+              setMessages(prev => [...prev, { role: 'assistant', content: modelInfo ? `Modelul a fost antrenat ultima dată la ${modelInfo.trained_at}.` : "Modelul nu a fost antrenat încă." }]);
             }
             return;
           }
@@ -183,10 +183,10 @@ export default function App() {
       }
 
       // Normal message
-      setMessages(prev => [...prev, { role: 'bot', content: aiContent }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: aiContent }]);
 
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'bot', content: 'Eroare de comunicare cu creierul AI. Verifică portul 7772.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Eroare de comunicare cu creierul AI. Verifică portul 7772.' }]);
     }
   };
 

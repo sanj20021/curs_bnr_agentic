@@ -155,7 +155,9 @@ async def chat_with_ai(request: dict):
         
         messages = [{"role": "system", "content": system_prompt}]
         for msg in history:
-            messages.append(msg)
+            # Only include valid roles for Llama/Groq history
+            if msg.get("role") in ["user", "assistant"]:
+                messages.append(msg)
         messages.append({"role": "user", "content": user_message})
         
         completion = client.chat.completions.create(
