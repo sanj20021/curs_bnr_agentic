@@ -36,8 +36,10 @@ def get_historical_data():
     # Convert dates to ISO format string for easier JSON serialization
     df['Data'] = pd.to_datetime(df['Data'], format='%d.%m.%Y').dt.strftime('%Y-%m-%d')
     
-    # Sort by date
     df = df.sort_values(by="Data").reset_index(drop=True)
+    
+    # Drop NaN values to avoid JSON serialization errors
+    df = df.dropna()
     
     # Return as list of dicts
     records = df.to_dict(orient="records")
@@ -64,4 +66,7 @@ def run_pipeline():
         run_core_pipeline()
         return {"status": "success", "message": "Pipeline executat cu succes!"}
     except Exception as e:
+        print(f"Eroare la rularea pipeline-ului: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # To run: uvicorn src.api.server:app --reload
