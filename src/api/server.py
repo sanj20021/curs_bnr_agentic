@@ -13,17 +13,11 @@ from src.core.scraper import scrape_curs_bnr
 
 app = FastAPI(title="Curs BNR Forecast API", version="1.0.0")
 
-# Set up CORS - Broad for local dev
+# Set up CORS - Permissive for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://0.0.0.0:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,7 +29,7 @@ data_dir = os.path.join(base_dir, "date_extrase")
 def read_root():
     return {"message": "Welcome to the Curs BNR Forecast API"}
 
-@app.get("/api/data")
+@app.get("/api/rates")
 def get_historical_data():
     csv_path = os.path.join(data_dir, "istoric_curs_pln.csv")
     if not os.path.exists(csv_path):
@@ -54,8 +48,8 @@ def get_historical_data():
     records = df.to_dict(orient="records")
     return {"data": records}
 
-@app.get("/api/model/info")
-def get_model_info():
+@app.get("/api/runs")
+def get_model_info(limit: int = 1):
     model_path = os.path.join(data_dir, "best_model_pln.pkl")
     if not os.path.exists(model_path):
         raise HTTPException(status_code=404, detail="Model file not found. Please run the pipeline first.")
@@ -64,12 +58,14 @@ def get_model_info():
     # we could just return a status that it exists. 
     # For a robust API we should save the metrics into a JSON file during training.
     # For now, we return that the model is ready.
-    return {
+    # Wrap in list for the "runs" context
+    return [{
         "status": "ready",
-        "model_file": "best_model_pln.pkl"
-    }
+        "model_file": "best_model_pln.pkl",
+        "trained_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }][:limit]
 
-@app.post("/api/run-pipeline")
+@app.post("/api/scrape")
 def run_pipeline():
     try:
         run_core_pipeline()
@@ -78,7 +74,7 @@ def run_pipeline():
         print(f"Eroare la rularea pipeline-ului: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/predict")
+@app.get("/api/forecast/latest")
 def get_predictions():
     """Generates real 7-day predictions using the trained XGBoost model."""
     model_path = os.path.join(data_dir, "best_model_pln.pkl")
