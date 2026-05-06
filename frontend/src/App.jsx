@@ -57,7 +57,23 @@ export default function App() {
   }, []);
 
   const runPipeline = async () => {
-    if (!confirm("Confirmare: Acest proces va descărca cele mai noi date valutare și va reantrena complet modelul AI pentru o precizie maximă. Durează aproximativ 1-2 minute.")) return;
+    if (data.length > 0) {
+      const latestDateStr = data[data.length - 1].Data;
+      const latestDate = new Date(latestDateStr);
+      const today = new Date();
+      const diffTime = Math.abs(today - latestDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 2) {
+        const force = confirm(`Sistem Sincronizat: Datele sunt deja la zi (ultima actualizare: ${latestDateStr}).\n\nMotorul AI operează deja pe cele mai recente date financiare BNR.\n\nDoriți totuși să forțați o re-antrenare a modelului?`);
+        if (!force) return;
+      } else {
+        if (!confirm("Confirmare: Acest proces va descărca cele mai noi date valutare și va reantrena complet modelul AI pentru o precizie maximă. Durează aproximativ 1-2 minute.")) return;
+      }
+    } else {
+      if (!confirm("Confirmare: Acest proces va descărca datele valutare și va antrena modelul AI. Durează aproximativ 1-2 minute.")) return;
+    }
+
     try {
       setPipelineRunning(true);
       const res = await fetch('http://localhost:8000/api/run-pipeline', { method: 'POST' });
@@ -241,6 +257,35 @@ export default function App() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+
+          {/* AI Predictions Grid */}
+          {chartData.length > data.length && (
+            <div className="glass-panel" style={{ gridColumn: 'span 12', padding: '1.5rem' }}>
+              <div className="metric-title" style={{ marginBottom: '0.5rem' }}>
+                <Cpu size={16} /> Proiecția Inteligenței Artificiale (Următoarele 7 Zile)
+              </div>
+              <div className="prediction-grid">
+                {chartData.slice(data.length).map((pred, idx) => {
+                  const prevVal = idx === 0 ? latestRate : parseFloat(chartData[data.length + idx - 1].Predictie);
+                  const currentVal = parseFloat(pred.Predictie);
+                  const diff = currentVal - prevVal;
+                  const isUp = diff > 0;
+                  const isSame = diff === 0;
+                  
+                  return (
+                    <div className="prediction-card" key={pred.Data}>
+                      <div className="pred-date">{pred.Data}</div>
+                      <div className="pred-val">{currentVal.toFixed(4)}</div>
+                      <div className={`pred-trend ${isSame ? '' : isUp ? 'trend-up' : 'trend-down'}`}>
+                        {!isSame && (isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />)}
+                        {isSame ? '-' : Math.abs(diff).toFixed(4)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Historical Data Table */}
           <div className="glass-panel table-container">
