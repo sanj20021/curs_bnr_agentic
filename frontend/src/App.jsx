@@ -6,7 +6,7 @@ import {
 import { 
   TrendingUp, TrendingDown, Activity, RefreshCw, Database,
   Cpu, CheckCircle2, AlertCircle, BarChart3, Settings, ShieldCheck,
-  MessageSquare, Send, X, Bot, Zap
+  MessageSquare, Send, X, Bot, Zap, Trash2
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:7772/api';
@@ -21,10 +21,24 @@ export default function App() {
   
   // Chatbot State
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('groq_api_key') || '');
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('groq_model') || 'llama-3.3-70b-versatile');
   const [chatInput, setChatInput] = useState('');
-  const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Bună! Sunt asistentul tău financiar AI. Te pot ajuta cu informații despre cursul BNR, prognoze sau pot actualiza datele pentru tine. Ce dorești să afli?' }
-  ]);
+  const defaultMessage = { role: 'assistant', content: 'Salut! 👋 Sunt Asistentul tău Agentic BNR. Analizez cursul valutar și folosesc un model avansat XGBoost pentru predicții.\n\nTe pot ajuta să rulezi tool-uri automat:\n- "Actualizează datele" (scrape_bnr)\n- "Cât e cursul?" (get_rates)\n- "Ce prognoză ai pe zilele viitoare?" (get_forecast)\n- "Când a fost antrenat modelul?" (get_runs)\n\nSpune-mi, cu ce te pot ajuta azi?' };
+
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem('agentic_chat_messages');
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e){}
+    }
+    return [defaultMessage];
+  });
+  
+  const clearChat = () => {
+    setMessages([defaultMessage]);
+    localStorage.removeItem('agentic_chat_messages');
+  };
   const chatEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -32,8 +46,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    localStorage.setItem('agentic_chat_messages', JSON.stringify(messages));
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    localStorage.setItem('groq_api_key', apiKey);
+    localStorage.setItem('groq_model', selectedModel);
+  }, [apiKey, selectedModel]);
 
   const fetchData = async () => {
     try {
@@ -117,29 +137,44 @@ export default function App() {
     }
   };
 
-  // AGENTIC LOGIC: REAL LLM (Llama 3.3) WITH TOOL CALLING
+  // AGENTIC LOGIC: REAL LLM (Llama 3.3) WITH TOOL CALLING (2-STEP LOOP)
+  const fetchAiResponse = async (historyToSend) => {
+      const currentMsg = historyToSend[historyToSend.length - 1];
+      const previousHistory = historyToSend.slice(0, -1);
+      
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: currentMsg.content,
+          history: previousHistory,
+          api_key: apiKey,
+          model: selectedModel
+        })
+      });
+
+      if (!res.ok) {
+        let errStr = 'AI offline sau port incorect';
+        try { const errJson = await res.json(); errStr = errJson.detail || errStr; } catch(e){}
+        throw new Error(errStr);
+      }
+      const dataJson = await res.json();
+      return dataJson.response;
+  };
+
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
     const userMsg = chatInput;
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    const newMessages = [...messages, { role: 'user', content: userMsg }];
+    setMessages(newMessages);
     setChatInput('');
 
     try {
-      // Send to real AI backend
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: userMsg,
-          history: messages.slice(-5).map(m => ({ role: m.role, content: m.content }))
-        })
-      });
-
-      if (!res.ok) throw new Error('AI offline');
-      const dataJson = await res.json();
-      const aiContent = dataJson.response;
+      // Step 1: Send user message
+      let historyToSend = newMessages.slice(-10);
+      let aiContent = await fetchAiResponse(historyToSend);
 
       // Handle Tool Calls (if AI returned JSON)
       if (aiContent.includes('{') && aiContent.includes('}')) {
@@ -150,43 +185,38 @@ export default function App() {
           const toolCall = JSON.parse(jsonStr);
 
           if (toolCall.tool) {
-            setMessages(prev => [...prev, { 
-              role: 'system', 
-              content: `TOOL CALL: ${JSON.stringify(toolCall)}` 
-            }]);
-
+            let toolOutputStr = "";
+            
             if (toolCall.tool === 'scrape_bnr') {
               const success = await runPipeline(true);
-              const response = success ? "Am finalizat actualizarea datelor de la BNR." : "Eroare la scraping.";
-              setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+              toolOutputStr = success ? "Scraping finalizat. Date noi au fost extrase si salvate." : "Eroare la scraping.";
             } 
             else if (toolCall.tool === 'get_forecast') {
-              if (predictions.length > 0) {
-                setMessages(prev => [...prev, { role: 'assistant', content: `Prognoza pentru mâine este ${predictions[0].Predictie} RON. Trendul este vizibil pe grafic.` }]);
-              } else {
-                setMessages(prev => [...prev, { role: 'assistant', content: "Nu am date de prognoză în memorie. Te rog să îmi ceri să actualizez datele." }]);
-              }
+              toolOutputStr = predictions.length > 0 ? JSON.stringify(predictions) : "Nu am date de prognoză în memorie. Te rog anunță userul că trebuie să ceară actualizarea datelor mai întâi.";
             }
             else if (toolCall.tool === 'get_rates') {
-              if (data.length > 0) {
-                setMessages(prev => [...prev, { role: 'assistant', content: `Ultimul curs PLN este ${data[data.length-1].PLN} RON.` }]);
-              }
+              toolOutputStr = data.length > 0 ? JSON.stringify(data.slice(-30)) : "Nu am date istorice in memorie.";
             }
             else if (toolCall.tool === 'get_runs') {
-              setMessages(prev => [...prev, { role: 'assistant', content: modelInfo ? `Modelul a fost antrenat ultima dată la ${modelInfo.trained_at}.` : "Modelul nu a fost antrenat încă." }]);
+              toolOutputStr = modelInfo ? JSON.stringify(modelInfo) : "Modelul nu a fost antrenat.";
             }
-            return;
+            
+            // Step 2: Agentic loop back to AI
+            historyToSend.push({ role: 'assistant', content: aiContent });
+            historyToSend.push({ role: 'user', content: `[SYSTEM TOOL RESULT for ${toolCall.tool}]:\n${toolOutputStr}\n\nAnalizează datele de mai sus și răspunde la ULTIMA mea cerință. Dacă am cerut o anumită zi, extrage doar acea zi. Dacă am cerut prognoza în general (fără o zi specificată), afișează toate datele disponibile succint. Nu genera JSON.` });
+            
+            aiContent = await fetchAiResponse(historyToSend);
           }
         } catch (e) {
-          console.log("Not a valid tool call JSON, treating as message");
+          console.log("JSON invalid tool", e);
         }
       }
 
-      // Normal message
+      // Normal message or final result after tool
       setMessages(prev => [...prev, { role: 'assistant', content: aiContent }]);
 
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Eroare de comunicare cu creierul AI. Verifică portul 7772.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Eroare: ${err.message}` }]);
     }
   };
 
@@ -366,9 +396,49 @@ export default function App() {
       {isChatOpen && (
         <div className="chat-window">
           <div className="chat-header">
-            <Bot size={20} color="#10b981" />
-            <div style={{ fontWeight: 600 }}>Asistent Agentic BNR</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Bot size={20} color="#10b981" />
+              <div style={{ fontWeight: 600 }}>Asistent Agentic BNR</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <Trash2 size={18} className="chat-icon-btn" onClick={clearChat} title="Golește Chat" />
+              <Settings 
+                size={18} 
+                className={`chat-icon-btn ${isSettingsOpen ? 'active' : ''}`}
+                onClick={() => setIsSettingsOpen(!isSettingsOpen)} 
+                title="Setări (API & Model)"
+              />
+            </div>
           </div>
+          {isSettingsOpen && (
+            <div style={{ padding: '10px 15px', backgroundColor: 'rgba(15,23,42,0.8)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Groq API Key (opțional)</label>
+                <input 
+                  type="password" 
+                  value={apiKey} 
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Lasă gol pentru default" 
+                  style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #334155', background: '#1e293b', color: '#f8fafc', fontSize: '0.8rem', marginBottom: '6px' }}
+                />
+                <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: '#10b981', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  🔑 Obține gratuit propria cheie Groq
+                </a>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Model AI</label>
+                <select 
+                  value={selectedModel} 
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  style={{ width: '100%', padding: '4px 8px', borderRadius: '4px', border: '1px solid #334155', background: '#1e293b', color: '#f8fafc', fontSize: '0.8rem' }}
+                >
+                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                  <option value="llama3-8b-8192">llama3-8b-8192</option>
+                  <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                </select>
+              </div>
+            </div>
+          )}
           <div className="chat-messages">
             {messages.map((m, i) => (
               <div key={i} className={`chat-message message-${m.role}`}>

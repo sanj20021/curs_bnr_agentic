@@ -39,11 +39,15 @@ def prepare_data(csv_path):
     # Extragem ziua saptamanii ca feature (ex. luni=0, ..., vineri=4)
     df['DayOfWeek'] = df['Data'].dt.dayofweek
     
+    # Adaugam features noi pentru a preveni "flat forecast" pe random walk
+    df['Rolling_Mean_7'] = df['Lag_1'].rolling(window=7).mean()
+    df['Momentum_1'] = df['Lag_1'] - df['Lag_2']
+    
     df = df.dropna()
     
     return df, target_col
 
-def optimize_hyperparameters(X, y, n_trials=30):
+def optimize_hyperparameters(X, y, n_trials=100):
     """
     Lansează optuna pentru a căuta hiperparametrii optimi folosind TimeSeriesSplit.
     """
@@ -98,14 +102,14 @@ def optimize_hyperparameters_gridsearch(X, y):
     grid.fit(X, y)
     return grid.best_params_
 
-def train_and_evaluate(csv_path, output_dir=".", n_trials=30, method="optuna"):
+def train_and_evaluate(csv_path, output_dir=".", n_trials=100, method="optuna"):
     """
     Fluxul complet: extrage setul train/test, optimizează, antrenează modelul final și expune metricile.
     14 zile sunt reținute pentru setul de test.
     """
     df, target_col = prepare_data(csv_path)
     
-    features = ['Lag_1', 'Lag_2', 'Lag_7', 'DayOfWeek']
+    features = ['Lag_1', 'Lag_2', 'Lag_7', 'DayOfWeek', 'Rolling_Mean_7', 'Momentum_1']
     
     # Reținem ultimele 14 intrări (zile) ca test set orb
     test_size = 14

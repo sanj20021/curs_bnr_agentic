@@ -31,7 +31,7 @@ def main():
     metrics_optuna, test_data_optuna, preds_optuna, mod_optuna = train_and_evaluate(
         csv_path=csv_path, 
         output_dir=data_dir, 
-        n_trials=30,
+        n_trials=100,
         method="optuna"
     )
     

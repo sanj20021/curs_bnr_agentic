@@ -419,7 +419,21 @@ tbody tr:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.chat-icon-btn {
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.chat-icon-btn:hover {
+  color: var(--accent);
+}
+
+.chat-icon-btn.active {
+  color: var(--accent);
 }
 
 .chat-messages {

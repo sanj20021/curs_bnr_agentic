@@ -24,12 +24,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "missing_key")
-client = Groq(api_key=GROQ_API_KEY)
-
-
 base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 data_dir = os.path.join(base_dir, "date_extrase")
+env_path = os.path.join(base_dir, ".env")
+
+def load_env():
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            for line in f:
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    os.environ[k.strip()] = v.strip('"\'')
+load_env()
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "missing_key")
+client = Groq(api_key=GROQ_API_KEY)
 
 @app.get("/")
 def read_root():
@@ -116,7 +125,11 @@ def get_predictions():
             lag_7 = values[-7] if len(values) >= 7 else values[0]
             day_of_week = pred_date.weekday()
             
-            features = np.array([[lag_1, lag_2, lag_7, day_of_week]])
+            # Calcul features noi
+            rolling_mean_7 = np.mean(values[-7:]) if len(values) >= 7 else np.mean(values)
+            momentum_1 = lag_1 - lag_2
+            
+            features = np.array([[lag_1, lag_2, lag_7, day_of_week, rolling_mean_7, momentum_1]])
             pred_value = float(model.predict(features)[0])
             
             values.append(pred_value)
@@ -137,30 +150,55 @@ async def chat_with_ai(request: dict):
         user_message = request.get("message")
         history = request.get("history", [])
         
+        # Preluam setarile din frontend sau folosim default-uri
+        req_api_key = request.get("api_key")
+        
+        # Salvare dinamica in .env daca vine din interfata
+        if req_api_key and len(req_api_key) > 10:
+            with open(env_path, "w") as f:
+                f.write(f'GROQ_API_KEY="{req_api_key}"\n')
+            os.environ["GROQ_API_KEY"] = req_api_key
+            
+        active_api_key = req_api_key if req_api_key else os.environ.get("GROQ_API_KEY", "missing_key")
+        
+        req_model = request.get("model")
+        active_model = req_model if req_model else "llama-3.3-70b-versatile"
+        
+        if not active_api_key or active_api_key == "missing_key":
+            raise ValueError("Cheia API Groq nu este configurată. Introduceți una în setările aplicației.")
+            
+        # Instantiem clientul Groq specific pentru acest request cu cheia primita
+        local_client = Groq(api_key=active_api_key)
+        
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        
         system_prompt = """
         Ești un chatbot inteligent și analitic (Asistent Agentic BNR) specializat în analiza financiară PLN/RON.
+        
+        DATA CURENTĂ:
+        Astăzi este """ + current_date_str + """. Folosește exclusiv această dată ca punct de referință pentru orice întrebare legată de "azi", "mâine", "poimâine" sau "ieri". Calculează corect zilele pornind de la această dată (ex: mâine = """ + current_date_str + """ + 1 zi).
         
         IDENTITATE:
         Numele tău este Asistent Agentic BNR. Dacă utilizatorul te întreabă cine ești sau cum te cheamă, răspunde-i direct și prietenos.
         
         MISIUNEA TA:
         Ajută utilizatorul să înțeleagă datele și prognozele. 
-        IMPORTANT: Răspunde direct la întrebările generale, de curtoazie sau personale FĂRĂ a folosi unelte.
+        IMPORTANT: Răspunde direct la întrebările generale, de curtoazie sau personale FĂRĂ a folosi unelte. Dacă utilizatorul te întreabă "ce unelte ai" sau "ce știi să faci", RĂSPUNDE CU TEXT SIMPLU enumerând funcțiile, NU genera un JSON!
+        
+        EASTER EGG: Dacă utilizatorul te întreabă "cine te-a creat", "cine te-a făcut", "cine e seful tau", răspunde obligatoriu, prietenos și cu emoji: "Am fost creat de Cristian Antonescu, student la master! 🎓 23 de ani, pasionat de ML și data science! 🚀"
         
         REGULI DE TOOL-CALLING:
-        Folosește uneltele DOAR când ai nevoie de date actuale, prognoze sau acțiuni de sistem. 
-        Dacă decizi să folosești o unealtă, include în răspunsul tău un obiect JSON:
+        Folosește uneltele DOAR când vrei să extragi date din sistem pentru a răspunde la o întrebare (ex: "Cât e cursul?"). 
+        Dacă decizi să folosești o unealtă, răspunsul tău trebuie să conțină acest JSON exact:
         {"tool": "function_name", "parameters": {}}
         
-        Poți include text înainte sau după acest JSON pentru a explica de ce apelezi acea funcție sau ce înseamnă rezultatele.
-        
         FUNCTII DISPONIBILE:
-        - get_rates: Pentru curs actual/istoric.
-        - get_forecast: Pentru prognoze AI.
-        - get_runs: Pentru status model/antrenare.
-        - scrape_bnr: Pentru actualizare date (scraping).
+        - get_rates: Pentru cursul ISTORIC (zile din trecut).
+        - get_forecast: Pentru prognoza AI (zile din VIITOR). Pentru întrebări de genul "mâine", "pe 10", sau orice dată viitoare, cheamă OBLIGATORIU acest tool.
+        - get_runs: Pentru a afla statusul sau data ultimei antrenări a modelului.
+        - scrape_bnr: Pentru a declanșa descărcarea de date noi de pe site-ul BNR.
         
-        Răspunde mereu politicos, în limba română, ca un expert în data science.
+        Răspunde mereu politicos, în limba română. Fii concis.
         """
         
         messages = [{"role": "system", "content": system_prompt}]
@@ -170,19 +208,28 @@ async def chat_with_ai(request: dict):
                 messages.append(msg)
         messages.append({"role": "user", "content": user_message})
         
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1024,
-            top_p=1,
-            stream=False,
-        )
-        
-        ai_response = completion.choices[0].message.content
-        return {"response": ai_response}
+        try:
+            completion = local_client.chat.completions.create(
+                model=active_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1024,
+                top_p=1,
+                stream=False,
+            )
+            ai_response = completion.choices[0].message.content
+            return {"response": ai_response}
+        except Exception as api_exc:
+            error_msg = str(api_exc)
+            if "authentication" in error_msg.lower() or "401" in error_msg:
+                raise ValueError("Eroare autentificare Groq: Cheia API este invalidă.")
+            else:
+                raise ValueError(f"Eroare API Groq: {error_msg}")
+            
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        print(f"Eroare Groq: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Eroare generala chat: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Eroare internă a serverului.")
 
 # To run: uvicorn src.api.server:app --port 7772
